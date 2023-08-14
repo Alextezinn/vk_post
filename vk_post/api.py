@@ -3,10 +3,8 @@ from pathlib import Path
 from typing import Optional
 from abc import abstractmethod, ABC
 
-import aiohttp
+from vkbottle import API
 import requests
-
-from constants import *
 
 
 class Post(ABC):
@@ -48,15 +46,10 @@ class PostVKGroup(Post):
         :param: _wall_post
     """
 
-    def __init__(self, personal_token: str, group_id: int, version: str="5.131"):
+    def __init__(self, personal_token: str, group_id: int):
         self._personal_token = personal_token
         self._group_id = group_id
-        self._version = version
-        self._params = {
-            'access_token': self._personal_token,
-            'group_id': self._group_id,
-            'v': self._version
-        }
+        self._api = API(token=self._personal_token)
 
     async def posting(self, post_message: str, path_dir_photos: Optional[Path]=None,
                       publish_date: datetime.datetime=None) -> None:
@@ -70,61 +63,39 @@ class PostVKGroup(Post):
         :return: None
         """
 
-        async with aiohttp.ClientSession() as session:
-            if path_dir_photos is None:
-                await self._wall_post(session, post_message, publish_date=publish_date)
-            else:
-                upload_url = await self._get_wall_upload_server(session)
+        if path_dir_photos is None:
+            await self._wall_post(post_message, publish_date=publish_date)
+        else:
+            upload_url = await self._get_wall_upload_server()
 
-                attachments = []
-                files = path_dir_photos.glob('*')
+            attachments = []
+            files = path_dir_photos.glob('*')
 
-                for file in files:
-                    attachments.append(await self._save_wall_photo(upload_url, file))
-
-                await self._wall_post(session, post_message, ",".join(attachments), publish_date)
+            for file in files:
+                attachments.append(await self._save_wall_photo(upload_url, file))
+                await self._wall_post(post_message, ",".join(attachments), publish_date)
 
 
-    async def _get_wall_upload_server(self, session: aiohttp.ClientSession) -> str:
-        async with session.get(URL_WALL_UPLOAD_SERVER, params=self._params) as response:
-            upload_url = await response.json()
+    async def _get_wall_upload_server(self) -> str:
+        upload_url = await self._api.photos.get_wall_upload_server()
+        upload_url = upload_url.dict()
 
-        return upload_url['response']['upload_url']
+        return upload_url['upload_url']
 
 
     async def _save_wall_photo(self, upload_url: str, path_photo: Path)-> str:
         response = requests.post(upload_url, files={'photo': open(path_photo, "rb")}).json()
 
-        add_params = {
-            'photo': response["photo"],
-            'server': response['server'],
-            'hash': response['hash']
-        }
+        # Получаем идентификатор сохраненной фотографии
+        photo_info = await self._api.photos.save_wall_photo(photo=response["photo"], server=response['server'],
+                                                         hash=response['hash'])
 
-        params = {**self._params, **add_params}
-
-        # Сохраняем картинку на сервере и получаем её идентификатор
-        photo_id = requests.get(SAVE_WALL_PHOTO, params=params).json()
-
-        return 'photo' + str(photo_id['response'][0]['owner_id']) + '_' + str(photo_id['response'][0]['id'])
+        photo_info = photo_info[0].dict()
+        return 'photo' + str(photo_info['owner_id']) + '_' + str(photo_info['id'])
 
 
-    async def _wall_post(self, session: aiohttp.ClientSession, message: str, attachments: Optional[str]=None,
+    async def _wall_post(self, message: str, attachments: Optional[str]=None,
                          publish_date: Optional[datetime.datetime]=None) -> None:
 
-        add_params = {
-            'from_group': 1,
-            'message': message
-        }
-
-        if attachments is not None:
-            add_params['attachments'] = attachments
-
-        if publish_date is not None:
-            add_params['publish_date'] = publish_date
-
-        params = {**self._params, **add_params}
-        del params['group_id']
-        params['owner_id'] = -self._group_id
-
-        await session.get(WALL_POST, params=params)
+        await self._api.wall.post(owner_id=-self._group_id, message=message, attachments=attachments,
+                                 publish_date=publish_date)

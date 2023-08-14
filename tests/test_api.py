@@ -19,6 +19,7 @@ else:
 
 
 async def test_posting():
+
     group_id = 215794226
     personal_token = env.str("PERSONAL_TOKEN")
     post = PostVKGroup(personal_token, group_id)
@@ -27,7 +28,7 @@ async def test_posting():
     print("Пост 1")
     time.sleep(30)
 
-    publish_date = datetime.datetime(2023, 8, 4, 17, 16).timestamp()
+    publish_date = datetime.datetime(2023, 8, 15, 17, 16).timestamp()
     await post.posting("hello", publish_date=publish_date)
     print("Пост 2")
     time.sleep(30)
@@ -36,7 +37,7 @@ async def test_posting():
     print("Пост 3")
     time.sleep(30)
 
-    publish_date = datetime.datetime(2023, 8, 4, 17, 15).timestamp()
+    publish_date = datetime.datetime(2023, 8, 15, 17, 15).timestamp()
     await post.posting("hello", path_dir_photos=Path("/home/alexander/PycharmProjects/vk_post/tests/photos"),
                        publish_date=publish_date)
     print("Пост 4")
