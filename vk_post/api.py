@@ -66,36 +66,56 @@ class PostVKGroup(Post):
         if path_dir_photos is None:
             await self._wall_post(post_message, publish_date=publish_date)
         else:
-            upload_url = await self._get_wall_upload_server()
-
             attachments = []
             files = path_dir_photos.glob('*')
 
             for file in files:
-                attachments.append(await self._save_wall_photo(upload_url, file))
-                await self._wall_post(post_message, ",".join(attachments), publish_date)
+                if self._is_video_file(file):
+                    upload_url = await self._url_upload_video(file.name)
+                    attachments.append(await self._save_upload_video(upload_url, file))
+                else:
+                    upload_url = await self._get_wall_upload_server()
+                    attachments.append(await self._save_wall_photo(upload_url, file))
 
+            await self._wall_post(post_message, ",".join(attachments), publish_date)
 
     async def _get_wall_upload_server(self) -> str:
         upload_url = await self._api.photos.get_wall_upload_server()
         upload_url = upload_url.dict()
-
         return upload_url['upload_url']
-
 
     async def _save_wall_photo(self, upload_url: str, path_photo: Path)-> str:
         response = requests.post(upload_url, files={'photo': open(path_photo, "rb")}).json()
 
         # Получаем идентификатор сохраненной фотографии
-        photo_info = await self._api.photos.save_wall_photo(photo=response["photo"], server=response['server'],
-                                                         hash=response['hash'])
+        photo_info = await self._api.photos.save_wall_photo(
+            photo=response["photo"],
+            server=response['server'],
+            hash=response['hash']
+        )
 
         photo_info = photo_info[0].dict()
         return 'photo' + str(photo_info['owner_id']) + '_' + str(photo_info['id'])
 
+    async def _save_upload_video(self, upload_url: str, path_video: Path):
+        video_info = requests.post(upload_url, files={'video_file': open(path_video, "rb")}).json()
+        return 'video' + str(video_info['owner_id']) + '_' + str(video_info['video_id'])
+
+    async def _url_upload_video(self, video_name: str) -> str:
+        response = await self._api.video.save(name=video_name, group_id=self._group_id)
+        return response.dict()['upload_url']
 
     async def _wall_post(self, message: str, attachments: Optional[str]=None,
                          publish_date: Optional[datetime.datetime]=None) -> None:
 
-        await self._api.wall.post(owner_id=-self._group_id, message=message, attachments=attachments,
-                                 publish_date=publish_date)
+        await self._api.wall.post(
+            owner_id=-self._group_id,
+            message=message,
+            attachments=attachments,
+            publish_date=publish_date
+        )
+
+    def _is_video_file(self, filename: Path):
+        video_extensions = ['.mp4', '.mov', '.avi', '.mkv']
+        ext = filename.suffix.lower()
+        return ext in video_extensions
